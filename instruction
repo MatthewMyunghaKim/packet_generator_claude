@@ -1,0 +1,5 @@
+1. how to execute?
+python3 app.py
+Open a browser and type http://localhost:5000
+2. how to stop?
+ctrl + c

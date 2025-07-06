@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Packet Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .row {
+            display: flex;
+            gap: 15px;
+        }
+        .col {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Network Packet Generator</h1>
+        
+        <div class="warning">
+            <strong>Warning:</strong> This tool requires root privileges and should only be used for legitimate network testing and security analysis purposes.
+        </div>
+
+        <form id="packetForm">
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="protocol">Protocol:</label>
+                        <select id="protocol" name="protocol" required>
+                            <option value="None">None (No L4 Protocol)</option>
+                            <option value="TCP">TCP</option>
+                            <option value="UDP">UDP</option>
+                            <option value="ICMP">ICMP</option>
+                            <option value="Random">Random Protocol</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="ip_version">IP Version:</label>
+                        <select id="ip_version" name="ip_version" required>
+                            <option value="None">None (No L3 Header)</option>
+                            <option value="IPv4">IPv4</option>
+                            <option value="IPv6">IPv6</option>
+                            <option value="Random">Random IP Version</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="packet_count">Number of Packets:</label>
+                        <input type="number" id="packet_count" name="packet_count" value="1" min="1" max="1000" required>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="packet_size_mode">Packet Size Mode:</label>
+                        <select id="packet_size_mode" name="packet_size_mode">
+                            <option value="fixed">Fixed Size</option>
+                            <option value="random">Random Size</option>
+                            <option value="incrementing">Incrementing Size</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row" id="fixed_size_row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="packet_length">Packet Length (bytes):</label>
+                        <input type="number" id="packet_length" name="packet_length" value="64" min="64" max="1500" required>
+                    </div>
+                </div>
+                <div class="col"></div>
+            </div>
+
+            <div class="row" id="size_range_row" style="display: none;">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="size_min" id="size_min_label">Min Size / Start Size:</label>
+                        <input type="number" id="size_min" name="size_min" value="64" min="64" max="1500">
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="size_max">Max Size:</label>
+                        <input type="number" id="size_max" name="size_max" value="1500" min="64" max="1500">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row" id="size_step_row" style="display: none;">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="size_step">Increment Step:</label>
+                        <input type="number" id="size_step" name="size_step" value="1" min="1" max="100">
+                    </div>
+                </div>
+                <div class="col"></div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="src_ip_mode">Source IP Mode:</label>
+                        <select id="src_ip_mode" name="src_ip_mode">
+                            <option value="fixed">Fixed IP</option>
+                            <option value="incrementing">Incrementing IP</option>
+                            <option value="random">Random IP</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="dst_ip_mode">Destination IP Mode:</label>
+                        <select id="dst_ip_mode" name="dst_ip_mode">
+                            <option value="fixed">Fixed IP</option>
+                            <option value="incrementing">Incrementing IP</option>
+                            <option value="random">Random IP</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="src_ip">Source IP (Base/Start):</label>
+                        <input type="text" id="src_ip" name="src_ip" value="192.168.1.100" required>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="dst_ip">Destination IP (Base/Start):</label>
+                        <input type="text" id="dst_ip" name="dst_ip" value="192.168.1.1" required>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row" id="portFields">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="src_port">Source Port:</label>
+                        <input type="number" id="src_port" name="src_port" value="12345" min="1" max="65535">
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="dst_port">Destination Port:</label>
+                        <input type="number" id="dst_port" name="dst_port" value="80" min="1" max="65535">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="src_mac_mode">Source MAC Mode:</label>
+                        <select id="src_mac_mode" name="src_mac_mode">
+                            <option value="fixed">Fixed MAC</option>
+                            <option value="incrementing">Incrementing MAC</option>
+                            <option value="random">Random MAC</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="dst_mac_mode">Destination MAC Mode:</label>
+                        <select id="dst_mac_mode" name="dst_mac_mode">
+                            <option value="fixed">Fixed MAC</option>
+                            <option value="incrementing">Incrementing MAC</option>
+                            <option value="random">Random MAC</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="src_mac">Source MAC (Base/Start):</label>
+                        <input type="text" id="src_mac" name="src_mac" value="00:11:22:33:44:55" pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$">
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="dst_mac">Destination MAC (Base/Start):</label>
+                        <input type="text" id="dst_mac" name="dst_mac" value="aa:bb:cc:dd:ee:ff" pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="vlan_count">Number of VLAN Tags:</label>
+                        <select id="vlan_count" name="vlan_count">
+                            <option value="0">0 (No VLAN)</option>
+                            <option value="1">1 VLAN Tag</option>
+                            <option value="2">2 VLAN Tags</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="mpls_count">Number of MPLS Labels:</label>
+                        <select id="mpls_count" name="mpls_count">
+                            <option value="0">0 (No MPLS)</option>
+                            <option value="1">1 MPLS Label</option>
+                            <option value="2">2 MPLS Labels</option>
+                            <option value="3">3 MPLS Labels</option>
+                            <option value="4">4 MPLS Labels</option>
+                            <option value="5">5 MPLS Labels</option>
+                            <option value="6">6 MPLS Labels</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div id="vlan_fields" style="display: none;">
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="vlan1_id">VLAN 1 ID:</label>
+                            <input type="number" id="vlan1_id" name="vlan1_id" min="1" max="4094" value="100">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="vlan1_priority">VLAN 1 Priority:</label>
+                            <input type="number" id="vlan1_priority" name="vlan1_priority" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="row" id="vlan2_row" style="display: none;">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="vlan2_id">VLAN 2 ID:</label>
+                            <input type="number" id="vlan2_id" name="vlan2_id" min="1" max="4094" value="200">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="vlan2_priority">VLAN 2 Priority:</label>
+                            <input type="number" id="vlan2_priority" name="vlan2_priority" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="mpls_fields" style="display: none;">
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls1_label">MPLS 1 Label:</label>
+                            <input type="number" id="mpls1_label" name="mpls1_label" min="16" max="1048575" value="1000">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls1_tc">MPLS 1 TC:</label>
+                            <input type="number" id="mpls1_tc" name="mpls1_tc" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="row" id="mpls2_row" style="display: none;">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls2_label">MPLS 2 Label:</label>
+                            <input type="number" id="mpls2_label" name="mpls2_label" min="16" max="1048575" value="2000">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls2_tc">MPLS 2 TC:</label>
+                            <input type="number" id="mpls2_tc" name="mpls2_tc" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="row" id="mpls3_row" style="display: none;">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls3_label">MPLS 3 Label:</label>
+                            <input type="number" id="mpls3_label" name="mpls3_label" min="16" max="1048575" value="3000">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls3_tc">MPLS 3 TC:</label>
+                            <input type="number" id="mpls3_tc" name="mpls3_tc" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="row" id="mpls4_row" style="display: none;">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls4_label">MPLS 4 Label:</label>
+                            <input type="number" id="mpls4_label" name="mpls4_label" min="16" max="1048575" value="4000">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls4_tc">MPLS 4 TC:</label>
+                            <input type="number" id="mpls4_tc" name="mpls4_tc" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="row" id="mpls5_row" style="display: none;">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls5_label">MPLS 5 Label:</label>
+                            <input type="number" id="mpls5_label" name="mpls5_label" min="16" max="1048575" value="5000">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls5_tc">MPLS 5 TC:</label>
+                            <input type="number" id="mpls5_tc" name="mpls5_tc" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="row" id="mpls6_row" style="display: none;">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls6_label">MPLS 6 Label:</label>
+                            <input type="number" id="mpls6_label" name="mpls6_label" min="16" max="1048575" value="6000">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls6_tc">MPLS 6 TC:</label>
+                            <input type="number" id="mpls6_tc" name="mpls6_tc" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="send_interface">Send Interface:</label>
+                        <select id="send_interface" name="send_interface" required>
+                            <option value="">Select interface...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="recv_interface">Receive Interface:</label>
+                        <select id="recv_interface" name="recv_interface" required>
+                            <option value="">Select interface...</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="payload_data">Payload Data:</label>
+                <textarea id="payload_data" name="payload_data" rows="3" placeholder="00 00 00 00 (hex bytes separated by spaces)">00 00 00 00</textarea>
+            </div>
+
+            <button type="submit">Generate and Send Packets</button>
+        </form>
+
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            loadInterfaces();
+            
+            document.getElementById('protocol').addEventListener('change', function() {
+                const portFields = document.getElementById('portFields');
+                if (this.value === 'ICMP' || this.value === 'None') {
+                    portFields.style.display = 'none';
+                } else {
+                    portFields.style.display = 'flex';
+                }
+            });
+
+            document.getElementById('ip_version').addEventListener('change', function() {
+                const ipFields = document.querySelectorAll('input[id$="_ip"]');
+                const portFields = document.getElementById('portFields');
+                
+                if (this.value === 'None') {
+                    // Hide IP address fields when no L3 header
+                    ipFields.forEach(field => {
+                        field.closest('.row').style.display = 'none';
+                    });
+                    // Also hide port fields since they depend on IP layer
+                    portFields.style.display = 'none';
+                } else {
+                    // Show IP address fields
+                    ipFields.forEach(field => {
+                        field.closest('.row').style.display = 'flex';
+                    });
+                    // Show port fields based on protocol selection
+                    const protocol = document.getElementById('protocol').value;
+                    if (protocol === 'ICMP' || protocol === 'None') {
+                        portFields.style.display = 'none';
+                    } else {
+                        portFields.style.display = 'flex';
+                    }
+                }
+            });
+
+            document.getElementById('vlan_count').addEventListener('change', function() {
+                const vlanFields = document.getElementById('vlan_fields');
+                const vlan2Row = document.getElementById('vlan2_row');
+                
+                if (this.value === '0') {
+                    vlanFields.style.display = 'none';
+                } else {
+                    vlanFields.style.display = 'block';
+                    if (this.value === '2') {
+                        vlan2Row.style.display = 'flex';
+                    } else {
+                        vlan2Row.style.display = 'none';
+                    }
+                }
+            });
+
+            document.getElementById('mpls_count').addEventListener('change', function() {
+                const mplsFields = document.getElementById('mpls_fields');
+                const count = parseInt(this.value);
+                
+                if (count === 0) {
+                    mplsFields.style.display = 'none';
+                } else {
+                    mplsFields.style.display = 'block';
+                    
+                    // Hide all MPLS rows first
+                    for (let i = 2; i <= 6; i++) {
+                        const row = document.getElementById(`mpls${i}_row`);
+                        if (row) row.style.display = 'none';
+                    }
+                    
+                    // Show the required number of MPLS rows
+                    for (let i = 2; i <= count; i++) {
+                        const row = document.getElementById(`mpls${i}_row`);
+                        if (row) row.style.display = 'flex';
+                    }
+                }
+            });
+
+            document.getElementById('packet_size_mode').addEventListener('change', function() {
+                const mode = this.value;
+                const fixedRow = document.getElementById('fixed_size_row');
+                const rangeRow = document.getElementById('size_range_row');
+                const stepRow = document.getElementById('size_step_row');
+                const minLabel = document.getElementById('size_min_label');
+                
+                if (mode === 'fixed') {
+                    fixedRow.style.display = 'flex';
+                    rangeRow.style.display = 'none';
+                    stepRow.style.display = 'none';
+                } else if (mode === 'random') {
+                    fixedRow.style.display = 'none';
+                    rangeRow.style.display = 'flex';
+                    stepRow.style.display = 'none';
+                    minLabel.textContent = 'Min Size:';
+                } else if (mode === 'incrementing') {
+                    fixedRow.style.display = 'none';
+                    rangeRow.style.display = 'flex';
+                    stepRow.style.display = 'flex';
+                    minLabel.textContent = 'Start Size:';
+                }
+            });
+
+            document.getElementById('packetForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                generatePackets();
+            });
+        });
+
+        function loadInterfaces() {
+            fetch('/interfaces')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.interfaces) {
+                        const sendSelect = document.getElementById('send_interface');
+                        const recvSelect = document.getElementById('recv_interface');
+                        
+                        data.interfaces.forEach(iface => {
+                            const option1 = new Option(iface, iface);
+                            const option2 = new Option(iface, iface);
+                            sendSelect.add(option1);
+                            recvSelect.add(option2);
+                        });
+                        
+                        // Set default test interfaces
+                        sendSelect.value = 'test-send-interface';
+                        recvSelect.value = 'test-receive-interface';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading interfaces:', error);
+                });
+        }
+
+        function openInWireshark(filename) {
+            fetch(`/open_wireshark/${filename}`, {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show a brief success message
+                    const resultDiv = document.getElementById('result');
+                    const successMessage = document.createElement('div');
+                    successMessage.style.cssText = 'background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 10px; border-radius: 4px; margin-top: 10px;';
+                    successMessage.innerHTML = `<strong>Success:</strong> ${data.message}`;
+                    resultDiv.appendChild(successMessage);
+                    
+                    // Remove the success message after 3 seconds
+                    setTimeout(() => {
+                        if (successMessage.parentNode) {
+                            successMessage.parentNode.removeChild(successMessage);
+                        }
+                    }, 3000);
+                } else {
+                    alert(`Error: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                alert(`Error opening Wireshark: ${error.message}`);
+            });
+        }
+
+        function generatePackets() {
+            const formData = new FormData(document.getElementById('packetForm'));
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.innerHTML = 'Generating packets...';
+            resultDiv.className = 'result';
+            resultDiv.style.display = 'block';
+
+            fetch('/generate', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.className = 'result success';
+                    let resultHTML = `<strong>Success!</strong> ${data.message}`;
+                    
+                    if (data.packets) {
+                        resultHTML += '<br><br><strong>Sent Packets:</strong><br>' + data.packets.join('<br>');
+                    }
+                    
+                    if (data.comparison_results) {
+                        resultHTML += '<br><br><strong>Packet Comparison Results:</strong><br>';
+                        data.comparison_results.forEach(result => {
+                            if (result.includes('identical')) {
+                                resultHTML += `<span style="color: green;">✓ ${result}</span><br>`;
+                            } else if (result.includes('different') || result.includes('No corresponding')) {
+                                resultHTML += `<span style="color: red;">✗ ${result}</span><br>`;
+                            } else {
+                                resultHTML += `<span style="color: orange;">⚠ ${result}</span><br>`;
+                            }
+                        });
+                    }
+                    
+                    // Add PCAP download and Wireshark buttons
+                    if (data.sent_pcap_file || data.received_pcap_file) {
+                        resultHTML += '<br><br><strong>PCAP Files:</strong><br>';
+                        
+                        if (data.sent_pcap_file) {
+                            resultHTML += `<div style="margin-bottom: 10px;">
+                                <strong>Sent Packets:</strong><br>
+                                <a href="/download_pcap/${data.sent_pcap_file}" download>
+                                    <button type="button" style="background-color: #28a745; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; margin-top: 5px;">
+                                        📤 Download PCAP
+                                    </button>
+                                </a>
+                                <button type="button" onclick="openInWireshark('${data.sent_pcap_file}')" style="background-color: #6c757d; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px;">
+                                    🦈 Open in Wireshark
+                                </button>
+                            </div>`;
+                        }
+                        
+                        if (data.received_pcap_file) {
+                            resultHTML += `<div style="margin-bottom: 10px;">
+                                <strong>Received Packets:</strong><br>
+                                <a href="/download_pcap/${data.received_pcap_file}" download>
+                                    <button type="button" style="background-color: #17a2b8; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; margin-top: 5px;">
+                                        📥 Download PCAP
+                                    </button>
+                                </a>
+                                <button type="button" onclick="openInWireshark('${data.received_pcap_file}')" style="background-color: #6c757d; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px;">
+                                    🦈 Open in Wireshark
+                                </button>
+                            </div>`;
+                        }
+                    }
+                    
+                    resultDiv.innerHTML = resultHTML;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `<strong>Error:</strong> ${data.error}`;
+                }
+            })
+            .catch(error => {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `<strong>Error:</strong> ${error.message}`;
+            });
+        }
+    </script>
+</body>
+</html>
