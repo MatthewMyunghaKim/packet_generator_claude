@@ -197,6 +197,16 @@ def generate_ip_version(mode, packet_index, base_ip_version):
     else:
         return base_ip_version
 
+def generate_payload(mode, base_payload, target_payload_size):
+    """Generate payload based on mode"""
+    if mode == 'fixed':
+        return base_payload
+    elif mode == 'random':
+        # Generate random bytes to fill the target payload size
+        return bytes([random.randint(0, 255) for _ in range(target_payload_size)])
+    else:
+        return base_payload
+
 def compare_packets(sent_packet, received_packet):
     """Compare sent and received packets"""
     try:
@@ -244,6 +254,9 @@ def generate_packets():
         recv_interface = request.form['recv_interface']
         src_port = int(request.form.get('src_port', 0))
         dst_port = int(request.form.get('dst_port', 0))
+        
+        # Payload generation parameters
+        payload_mode = request.form.get('payload_mode', 'fixed')
         
         # Size generation parameters
         packet_size_mode = request.form.get('packet_size_mode', 'fixed')
@@ -382,38 +395,46 @@ def generate_packets():
                 
                 packet_layers.append(transport_layer)
             
-            # Add payload - handle hex format or text
-            if payload_data:
-                # Check if payload looks like hex format (space-separated hex bytes)
+            # Generate payload based on mode
+            if payload_mode == 'fixed' and payload_data:
+                # Handle hex format or text for base payload (only for fixed mode)
                 if all(c in '0123456789ABCDEFabcdef ' for c in payload_data):
                     try:
                         # Parse hex bytes
                         hex_bytes = payload_data.replace(' ', '')
                         if len(hex_bytes) % 2 == 0:  # Even number of hex characters
-                            payload = bytes.fromhex(hex_bytes)
+                            base_payload = bytes.fromhex(hex_bytes)
                         else:
                             # Fallback to text encoding if not valid hex
-                            payload = payload_data.encode('utf-8')
+                            base_payload = payload_data.encode('utf-8')
                     except ValueError:
                         # Fallback to text encoding if hex parsing fails
-                        payload = payload_data.encode('utf-8')
+                        base_payload = payload_data.encode('utf-8')
                 else:
                     # Treat as regular text
-                    payload = payload_data.encode('utf-8')
+                    base_payload = payload_data.encode('utf-8')
             else:
-                payload = b''
+                base_payload = b''
             
-            # Build the packet by layering all components
+            # Build the packet by layering all components (without payload first)
             packet = packet_layers[0]
             for layer in packet_layers[1:]:
                 packet = packet / layer
             
-            # Add padding if needed
-            if len(payload) < current_packet_length - len(packet):
-                payload += b'\x00' * (current_packet_length - len(packet) - len(payload))
+            # Calculate how much space is available for payload
+            headers_size = len(packet)
+            available_payload_space = current_packet_length - headers_size
             
-            if payload:
-                packet = packet / payload
+            # Generate payload for this packet using the specified mode
+            if available_payload_space > 0:
+                payload = generate_payload(payload_mode, base_payload, available_payload_space)
+                
+                # Add payload to packet
+                if payload:
+                    packet = packet / payload
+            else:
+                # No space for payload
+                payload = b''
             
             try:
                 # Send packet (real or mock)

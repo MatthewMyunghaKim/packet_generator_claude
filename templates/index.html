@@ -429,7 +429,20 @@
                 </div>
             </div>
 
-            <div class="form-group">
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="payload_mode">Payload Mode:</label>
+                        <select id="payload_mode" name="payload_mode">
+                            <option value="fixed">Fixed Payload</option>
+                            <option value="random">Random Payload</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col"></div>
+            </div>
+
+            <div class="form-group" id="payload_data_field">
                 <label for="payload_data">Payload Data:</label>
                 <textarea id="payload_data" name="payload_data" rows="3" placeholder="00 00 00 00 (hex bytes separated by spaces)">00 00 00 00</textarea>
             </div>
@@ -539,6 +552,17 @@
                     rangeRow.style.display = 'flex';
                     stepRow.style.display = 'flex';
                     minLabel.textContent = 'Start Size:';
+                }
+            });
+
+            document.getElementById('payload_mode').addEventListener('change', function() {
+                const mode = this.value;
+                const dataField = document.getElementById('payload_data_field');
+                
+                if (mode === 'fixed') {
+                    dataField.style.display = 'block';
+                } else if (mode === 'random') {
+                    dataField.style.display = 'none';
                 }
             });
 
