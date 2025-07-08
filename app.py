@@ -22,6 +22,7 @@ import subprocess
 import platform
 import random
 import ipaddress
+import glob
 
 app = Flask(__name__)
 app.secret_key = 'packet_generator_secret_key'
@@ -29,16 +30,177 @@ app.secret_key = 'packet_generator_secret_key'
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def packet_capture_thread(interface, packet_queue, capture_filter, duration=10):
-    """Capture packets on the specified interface"""
+def packet_capture_thread(interface, packet_queue, capture_filter, expected_count=1, max_duration=60, idle_timeout=5):
+    """Capture packets on the specified interface with adaptive timeout"""
     try:
-        logger.info(f"Starting packet capture on {interface} for {duration} seconds")
-        packets = sniff(iface=interface, timeout=duration, filter=capture_filter)
-        for packet in packets:
+        logger.info(f"Starting packet capture on {interface}, expecting {expected_count} packets")
+        logger.info(f"Capture filter: '{capture_filter}'")
+        logger.info(f"Timeout: {idle_timeout}s from start OR after last packet")
+        
+        captured_packets = []
+        start_time = time.time()
+        last_packet_time = None  # No packets received yet
+        
+        def packet_handler(packet):
+            nonlocal last_packet_time
+            captured_packets.append(packet)
             packet_queue.put(packet)
-        logger.info(f"Captured {len(packets)} packets on {interface}")
+            capture_time = time.time()
+            last_packet_time = capture_time
+            logger.info(f"📥 Captured packet {len(captured_packets)}/{expected_count} at {capture_time:.2f} - {packet.summary()}")
+            
+            # Stop capture if we have enough packets
+            if len(captured_packets) >= expected_count:
+                logger.info(f"🎯 Captured expected {expected_count} packets, stopping capture")
+                return True  # Stop sniffing
+            return False
+        
+        # Quick interface test - minimal overhead
+        try:
+            logger.info(f"🔧 Testing interface {interface}...")
+            
+            # Quick test - just verify interface works
+            test_packets = sniff(iface=interface, timeout=0.5, count=0)
+            logger.info(f"✓ Interface works: {len(test_packets)} packets in 0.5s")
+            
+        except Exception as test_error:
+            logger.error(f"❌ Interface test failed: {test_error}")
+            logger.error("Possible issues:")
+            logger.error("  - Wrong interface name (use 'ip link show' to list)")
+            logger.error("  - No root privileges (run with sudo)")
+            logger.error("  - Interface is down (use 'ip link set <interface> up')")
+        
+        # Enhanced capture with continuous monitoring
+        def capture_with_detailed_monitoring():
+            total_batches = 0
+            total_captured = 0
+            capture_active = True
+            
+            logger.info("🔍 Starting enhanced packet capture with detailed monitoring")
+            
+            while capture_active:
+                current_time = time.time()
+                elapsed_since_start = current_time - start_time
+                total_batches += 1
+                
+                # Quick timeout logic - 2 seconds for all scenarios
+                if last_packet_time is None and elapsed_since_start > idle_timeout:
+                    logger.info(f"⏰ Timeout: No packets for {idle_timeout}s from start")
+                    break
+                
+                if last_packet_time is not None:
+                    elapsed_since_last = current_time - last_packet_time
+                    if elapsed_since_last > idle_timeout:
+                        logger.info(f"⏰ Timeout: No packets for {idle_timeout}s after last packet")
+                        break
+                
+                if elapsed_since_start > max_duration:
+                    logger.info(f"⏰ Maximum duration ({max_duration}s) reached")
+                    break
+                
+                # Capture with detailed monitoring
+                try:
+                    batch_start = time.time()
+                    logger.info(f"📡 Batch {total_batches}: Capturing (elapsed: {elapsed_since_start:.1f}s, total so far: {total_captured})")
+                    
+                    # Use longer timeout and no filter for maximum capture
+                    batch_packets = sniff(
+                        iface=interface,
+                        timeout=1.0,  # Longer batch timeout
+                        promisc=True,  # Always use promiscuous mode
+                        count=0
+                    )
+                    
+                    batch_duration = time.time() - batch_start
+                    batch_count = len(batch_packets)
+                    total_captured += batch_count
+                    
+                    logger.info(f"📦 Batch {total_batches}: Captured {batch_count} packets in {batch_duration:.2f}s (total: {total_captured})")
+                    
+                    if batch_count > 0:
+                        # Show sample of captured packets for debugging
+                        for i, pkt in enumerate(batch_packets[:3]):  # Show first 3 packets
+                            logger.info(f"   Sample {i+1}: {pkt.summary()}")
+                        
+                        if batch_count > 3:
+                            logger.info(f"   ... and {batch_count - 3} more packets")
+                    
+                    # Process all captured packets immediately
+                    packets_added_this_batch = 0
+                    for packet in batch_packets:
+                        if packet_handler(packet):
+                            logger.info(f"🎯 Got all expected packets ({expected_count}), stopping capture")
+                            return
+                        packets_added_this_batch += 1
+                    
+                    logger.info(f"✅ Batch {total_batches}: Added {packets_added_this_batch} packets to queue")
+                    
+                    # If we haven't captured anything in several batches, show warning
+                    if total_batches > 5 and total_captured == 0:
+                        logger.warning(f"⚠️  No packets captured after {total_batches} batches - interface issue?")
+                        
+                        # Try a basic connectivity test
+                        logger.info("🔧 Running interface diagnostic...")
+                        test_packets = sniff(iface=interface, timeout=2.0, count=1)
+                        if len(test_packets) > 0:
+                            logger.info(f"✅ Interface can capture packets: {test_packets[0].summary()}")
+                        else:
+                            logger.error("❌ Interface appears unable to capture any packets")
+                            
+                except KeyboardInterrupt:
+                    logger.info("🛑 Capture interrupted by user")
+                    break
+                except Exception as batch_error:
+                    logger.error(f"❌ Batch {total_batches} error: {batch_error}")
+                    time.sleep(0.1)
+            
+            logger.info(f"🏁 Capture finished: {total_batches} batches, {total_captured} total packets captured")
+        
+        # Run the enhanced capture
+        capture_with_detailed_monitoring()
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"Packet capture completed in {elapsed_time:.2f}s, captured {len(captured_packets)} packets")
+        
     except Exception as e:
         logger.error(f"Error in packet capture: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+def cleanup_old_pcap_files():
+    """Clean up old PCAP files, keeping only the latest sent and received files"""
+    try:
+        pcap_dir = "pcap_files"
+        if not os.path.exists(pcap_dir):
+            return
+        
+        # Get all PCAP files
+        sent_files = glob.glob(os.path.join(pcap_dir, "sent_packets_*.pcap"))
+        received_files = glob.glob(os.path.join(pcap_dir, "received_packets_*.pcap"))
+        
+        # Sort by modification time (newest first)
+        sent_files.sort(key=os.path.getmtime, reverse=True)
+        received_files.sort(key=os.path.getmtime, reverse=True)
+        
+        # Keep only the latest file of each type, delete the rest
+        files_to_delete = sent_files[1:] + received_files[1:]  # Skip the first (newest) file
+        
+        deleted_count = 0
+        for file_path in files_to_delete:
+            try:
+                os.remove(file_path)
+                deleted_count += 1
+                logger.info(f"🗑️  Deleted old PCAP file: {os.path.basename(file_path)}")
+            except Exception as e:
+                logger.warning(f"Could not delete {file_path}: {e}")
+        
+        if deleted_count > 0:
+            logger.info(f"🧹 Cleaned up {deleted_count} old PCAP files")
+        else:
+            logger.info("🧹 No old PCAP files to clean up")
+            
+    except Exception as e:
+        logger.error(f"Error during PCAP cleanup: {str(e)}")
 
 def save_packets_to_pcap(packets, filename):
     """Save packets to a PCAP file"""
@@ -49,40 +211,26 @@ def save_packets_to_pcap(packets, filename):
             os.makedirs(pcap_dir)
         
         filepath = os.path.join(pcap_dir, filename)
-        wrpcap(filepath, packets)
-        logger.info(f"Saved {len(packets)} packets to {filepath}")
+        # Force standard PCAP format for better Wireshark compatibility
+        wrpcap(filepath, packets, linktype=1)  # DLT_EN10MB (Ethernet)
+        logger.info(f"💾 Saved {len(packets)} packets to {filepath}")
         return filepath
     except Exception as e:
         logger.error(f"Error saving PCAP file: {str(e)}")
         return None
 
 def simulate_packet_transmission(packet):
-    """Simulate packet transmission with some realistic modifications"""
+    """Return exact copy of packet for 1:1 testing"""
     try:
-        # Create a copy of the packet to simulate received packet
+        # Return exact copy without any modifications for precise testing
         received_packet = packet.copy()
         
-        # Simulate network changes that might occur during transmission
-        # 1. Change MAC addresses (as packets traverse different network segments)
-        if received_packet.haslayer(Ether):
-            # Simulate router MAC address changes
-            received_packet[Ether].src = "aa:bb:cc:dd:ee:ff"
-            received_packet[Ether].dst = "11:22:33:44:55:66"
-        
-        # 2. Simulate slight timing differences (already handled by packet creation time)
-        
-        # 3. Occasionally introduce small changes to simulate real network behavior
-        import random
-        if random.random() < 0.1:  # 10% chance of minor modification
-            # Simulate TTL/hop count changes
-            if received_packet.haslayer(IP):
-                received_packet[IP].ttl = max(1, received_packet[IP].ttl - 1)
-            elif received_packet.haslayer(IPv6):
-                received_packet[IPv6].hlim = max(1, received_packet[IPv6].hlim - 1)
+        # No modifications - exact 1:1 copy for testing purposes
+        logger.debug("Returning exact packet copy (no simulation)")
         
         return received_packet
     except Exception as e:
-        logger.error(f"Error simulating packet transmission: {str(e)}")
+        logger.error(f"Error copying packet: {str(e)}")
         return packet
 
 def mock_packet_send(packet, interface):
@@ -100,14 +248,17 @@ def mock_packet_capture(sent_packets, interface, capture_filter):
         logger.info(f"Mock capturing packets on {interface}")
         received_packets = []
         
-        for packet in sent_packets:
+        for i, packet in enumerate(sent_packets):
             # Simulate packet transmission and reception
             received_packet = simulate_packet_transmission(packet)
             received_packets.append(received_packet)
+            logger.info(f"📥 Mock received packet {i+1}/{len(sent_packets)}")
             
             # Add some delay to simulate network transmission
-            time.sleep(0.01)
+            time.sleep(0.005)  # Reduced to 5ms for faster processing
         
+        # Add small final delay to ensure all processing is complete
+        time.sleep(0.05)  # 50ms final delay
         logger.info(f"Mock captured {len(received_packets)} packets on {interface}")
         return received_packets
     except Exception as e:
@@ -119,9 +270,9 @@ def generate_packet_size(mode, packet_index, base_size, min_size=None, max_size=
     if mode == 'fixed':
         return base_size
     elif mode == 'random':
-        return random.randint(min_size or 64, max_size or 1500)
+        return random.randint(min_size or 64, max_size or 10000)
     elif mode == 'incrementing':
-        return min(max_size or 1500, (min_size or 64) + (packet_index * step))
+        return min(max_size or 10000, (min_size or 64) + (packet_index * step))
     else:
         return base_size
 
@@ -181,10 +332,14 @@ def generate_mac_address(mode, packet_index, base_mac):
     else:
         return base_mac
 
-def generate_protocol(mode, packet_index, base_protocol):
+def generate_protocol(mode, packet_index, base_protocol, ip_version=None):
     """Generate protocol based on mode"""
     if mode == 'Random':
-        protocols = ['TCP', 'UDP', 'ICMP']
+        # Only allow L4 protocols if we have an IP layer
+        if ip_version and ip_version != 'None':
+            protocols = ['TCP', 'UDP', 'ICMP']
+        else:
+            protocols = ['None']  # Only None protocol allowed without IP layer
         return random.choice(protocols)
     else:
         return base_protocol
@@ -200,12 +355,174 @@ def generate_ip_version(mode, packet_index, base_ip_version):
 def generate_payload(mode, base_payload, target_payload_size):
     """Generate payload based on mode"""
     if mode == 'fixed':
-        return base_payload
+        if not base_payload or target_payload_size <= 0:
+            return base_payload
+        
+        # Repeat the base pattern to fill target size
+        pattern_length = len(base_payload)
+        if pattern_length == 0:
+            return b''
+        
+        # Calculate how many full repetitions we need
+        full_repetitions = target_payload_size // pattern_length
+        remaining_bytes = target_payload_size % pattern_length
+        
+        # Build the repeated payload
+        repeated_payload = base_payload * full_repetitions
+        
+        # Add partial pattern if needed
+        if remaining_bytes > 0:
+            repeated_payload += base_payload[:remaining_bytes]
+        
+        return repeated_payload
     elif mode == 'random':
         # Generate random bytes to fill the target payload size
         return bytes([random.randint(0, 255) for _ in range(target_payload_size)])
     else:
         return base_payload
+
+def packets_match(sent_packet, captured_packet):
+    """Check if a captured packet matches a sent packet - more flexible matching"""
+    try:
+        # Extract IP addresses
+        sent_src_ip = None
+        sent_dst_ip = None  
+        captured_src_ip = None
+        captured_dst_ip = None
+        
+        if sent_packet.haslayer(IP):
+            sent_src_ip = sent_packet[IP].src
+            sent_dst_ip = sent_packet[IP].dst
+        elif sent_packet.haslayer(IPv6):
+            sent_src_ip = sent_packet[IPv6].src
+            sent_dst_ip = sent_packet[IPv6].dst
+            
+        if captured_packet.haslayer(IP):
+            captured_src_ip = captured_packet[IP].src
+            captured_dst_ip = captured_packet[IP].dst
+        elif captured_packet.haslayer(IPv6):
+            captured_src_ip = captured_packet[IPv6].src
+            captured_dst_ip = captured_packet[IPv6].dst
+        
+        # More flexible IP matching - check if any IP addresses are involved
+        if sent_src_ip and sent_dst_ip and captured_src_ip and captured_dst_ip:
+            # Check if this captured packet involves our test IPs
+            our_ips = {sent_src_ip, sent_dst_ip}
+            captured_ips = {captured_src_ip, captured_dst_ip}
+            
+            # If any of our test IPs appear in the captured packet, it's likely ours
+            if our_ips.intersection(captured_ips):
+                logger.debug(f"IP match: sent {sent_src_ip}→{sent_dst_ip}, captured {captured_src_ip}→{captured_dst_ip}")
+                return True
+        
+        # Fallback: If no IP match, try protocol matching
+        sent_proto = None
+        captured_proto = None
+        
+        if sent_packet.haslayer(TCP):
+            sent_proto = "TCP"
+        elif sent_packet.haslayer(UDP):
+            sent_proto = "UDP"
+        elif sent_packet.haslayer(ICMP):
+            sent_proto = "ICMP"
+            
+        if captured_packet.haslayer(TCP):
+            captured_proto = "TCP"
+        elif captured_packet.haslayer(UDP):
+            captured_proto = "UDP"
+        elif captured_packet.haslayer(ICMP):
+            captured_proto = "ICMP"
+        
+        # If protocols match and we're capturing without strong IP filtering, include it
+        if sent_proto and captured_proto and sent_proto == captured_proto:
+            logger.debug(f"Protocol match: {sent_proto}")
+            return True
+        
+        # If no IP layer, try MAC addresses (for Layer 2 tests)
+        if sent_packet.haslayer(Ether) and captured_packet.haslayer(Ether):
+            sent_src_mac = sent_packet[Ether].src
+            sent_dst_mac = sent_packet[Ether].dst
+            captured_src_mac = captured_packet[Ether].src
+            captured_dst_mac = captured_packet[Ether].dst
+            
+            # Check if any of our test MACs appear
+            our_macs = {sent_src_mac, sent_dst_mac}
+            captured_macs = {captured_src_mac, captured_dst_mac}
+            
+            if our_macs.intersection(captured_macs):
+                logger.debug(f"MAC match found")
+                return True
+        
+        return False
+    except Exception as e:
+        logger.error(f"Error matching packets: {str(e)}")
+        return False
+
+def analyze_packet_mismatch(sent_packet, received_packet, packet_number):
+    """Analyze detailed mismatch between two packets"""
+    try:
+        # Remove Ethernet layer for core packet comparison
+        sent_without_eth = sent_packet.payload if sent_packet.haslayer(Ether) else sent_packet
+        recv_without_eth = received_packet.payload if received_packet.haslayer(Ether) else received_packet
+        
+        sent_bytes = bytes(sent_without_eth)
+        recv_bytes = bytes(recv_without_eth)
+        
+        analysis = {
+            'packet_number': packet_number,
+            'sent_length': len(sent_bytes),
+            'received_length': len(recv_bytes),
+            'first_diff_byte': None,
+            'first_diff_offset': None,
+            'sent_summary': sent_packet.summary(),
+            'received_summary': received_packet.summary(),
+            'hex_comparison': None
+        }
+        
+        # Find first differing byte
+        min_len = min(len(sent_bytes), len(recv_bytes))
+        for i in range(min_len):
+            if sent_bytes[i] != recv_bytes[i]:
+                analysis['first_diff_offset'] = i
+                analysis['first_diff_byte'] = {
+                    'sent': f"0x{sent_bytes[i]:02x}",
+                    'received': f"0x{recv_bytes[i]:02x}"
+                }
+                
+                # Get hex context around the difference (±8 bytes)
+                start = max(0, i - 8)
+                end = min(len(sent_bytes), i + 9)
+                
+                sent_hex = ' '.join(f"{b:02x}" for b in sent_bytes[start:end])
+                recv_hex = ' '.join(f"{b:02x}" for b in recv_bytes[start:end])
+                
+                # Mark the differing byte with markers
+                diff_pos = i - start
+                sent_hex_parts = sent_hex.split()
+                recv_hex_parts = recv_hex.split()
+                
+                if diff_pos < len(sent_hex_parts):
+                    sent_hex_parts[diff_pos] = f"[{sent_hex_parts[diff_pos]}]"
+                if diff_pos < len(recv_hex_parts):
+                    recv_hex_parts[diff_pos] = f"[{recv_hex_parts[diff_pos]}]"
+                
+                analysis['hex_comparison'] = {
+                    'sent': ' '.join(sent_hex_parts),
+                    'received': ' '.join(recv_hex_parts),
+                    'offset_start': start
+                }
+                break
+        
+        # If no byte difference found but lengths differ
+        if analysis['first_diff_offset'] is None and len(sent_bytes) != len(recv_bytes):
+            analysis['first_diff_offset'] = min_len
+            analysis['length_mismatch'] = True
+        
+        return analysis
+        
+    except Exception as e:
+        logger.error(f"Error analyzing packet mismatch: {str(e)}")
+        return {'error': str(e)}
 
 def compare_packets(sent_packet, received_packet):
     """Compare sent and received packets"""
@@ -255,6 +572,11 @@ def generate_packets():
         src_port = int(request.form.get('src_port', 0))
         dst_port = int(request.form.get('dst_port', 0))
         
+        # Validate protocol layer dependencies
+        # Temporarily disabled for debugging
+        # if ip_version == 'None' and protocol in ['TCP', 'UDP', 'ICMP']:
+        #     return jsonify({'error': f'Cannot use {protocol} protocol without IP layer (IPv4/IPv6). Layer 4 protocols require Layer 3.'})
+        
         # Payload generation parameters
         payload_mode = request.form.get('payload_mode', 'fixed')
         
@@ -262,7 +584,7 @@ def generate_packets():
         packet_size_mode = request.form.get('packet_size_mode', 'fixed')
         base_packet_length = int(request.form.get('packet_length', 64))
         size_min = int(request.form.get('size_min', 64))
-        size_max = int(request.form.get('size_max', 1500))
+        size_max = int(request.form.get('size_max', 10000))
         size_step = int(request.form.get('size_step', 1))
         
         # MAC address generation parameters
@@ -322,19 +644,46 @@ def generate_packets():
         if not is_test_mode:
             # Start packet capture in a separate thread for real interfaces
             packet_queue = Queue()
+            # Create capture filter - start with no filter for debugging
+            # This helps identify if the issue is with filtering or capture itself
+            if base_src_ip and base_dst_ip:
+                # First try: no filter (capture everything for debugging)
+                ip_filter = ""
+                logger.info("Starting with NO FILTER to test basic capture capability")
+                logger.info(f"Will look for packets with IPs: {base_src_ip} ↔ {base_dst_ip}")
+            else:
+                ip_filter = ""
+                logger.info("Using no filter (capture all packets)")
+            
+            # Fast startup with minimal delays
+            max_duration = 60
+            idle_timeout = 2   # Quick timeout
+            startup_delay = 2   # Much shorter startup
+            logger.info(f"🚀 Fast mode: 2s startup, 2s timeout for {packet_count} packets")
+            
             capture_thread = threading.Thread(
                 target=packet_capture_thread,
-                args=(recv_interface, packet_queue, capture_filter, 15)
+                args=(recv_interface, packet_queue, ip_filter, packet_count, max_duration, idle_timeout)
             )
             capture_thread.start()
             
-            # Give the capture thread time to start
-            time.sleep(1)
+            # Minimal startup delay
+            logger.info(f"⏳ Quick startup: waiting {startup_delay}s...")
+            time.sleep(startup_delay)
+            
+            # Additional debugging for interface issues
+            logger.info(f"Sending packets to interface: {send_interface}")
+            logger.info(f"Receiving packets from interface: {recv_interface}")
+            
+            # Check if interfaces are the same (loopback scenario)
+            if send_interface == recv_interface:
+                logger.warning("Send and receive interfaces are the same - this may cause issues")
+                logger.warning("Consider using different interfaces or test interfaces for better results")
         
         for i in range(packet_count):
             # Generate values for this packet
-            current_protocol = generate_protocol(protocol, i, protocol)
             current_ip_version = generate_ip_version(ip_version, i, ip_version)
+            current_protocol = generate_protocol(protocol, i, protocol, current_ip_version)
             current_packet_length = generate_packet_size(
                 packet_size_mode, i, base_packet_length, size_min, size_max, size_step
             )
@@ -470,10 +819,23 @@ def generate_packets():
                     packet_desc += " sent"
                 
                 packets_sent.append(packet_desc)
-                logger.info(f"Sent packet {i+1}: {current_src_ip}:{src_port} -> {current_dst_ip}:{dst_port}")
+                send_time = time.time()
+                logger.info(f"📤 Sent packet {i+1}/{packet_count}: {current_src_ip}:{src_port} -> {current_dst_ip}:{dst_port} at {send_time:.2f}")
                 
-                # Small delay between packets to avoid overwhelming the capture
-                time.sleep(0.1)
+                # Adaptive delays to prevent race conditions
+                if is_test_mode:
+                    # For test mode, add slight delay to allow capture processing
+                    time.sleep(0.05)  # 50ms delay for test mode
+                else:
+                    if packet_count == 1:
+                        # Single packet - small delay to ensure capture
+                        time.sleep(0.5)
+                    else:
+                        # Multiple packets - adaptive delay based on packet count
+                        if packet_count <= 10:
+                            time.sleep(0.2)  # 200ms for small batches
+                        else:
+                            time.sleep(0.1)  # 100ms for larger batches
                 
             except Exception as e:
                 logger.error(f"Failed to send packet {i+1}: {str(e)}")
@@ -483,34 +845,148 @@ def generate_packets():
         received_packets = []
         
         if is_test_mode:
+            # Add final delay to ensure all packets are processed before mock capture
+            logger.info(f"⏳ Waiting extra time for {packet_count} packets to be fully processed...")
+            # Increased wait time for larger packet counts to prevent race conditions
+            if packet_count <= 4:
+                extra_wait = 0.1  # 100ms for small counts (1-4 packets)
+            else:
+                extra_wait = min(3.0, packet_count * 0.1)  # Max 3s, or 100ms per packet for 5+
+            logger.info(f"⏳ Extra wait time: {extra_wait:.2f}s")
+            time.sleep(extra_wait)
+            
             # Use mock packet capture for test interfaces
             received_packets = mock_packet_capture(sent_packets, recv_interface, capture_filter)
         else:
             # Wait for capture thread to complete and get captured packets
             capture_thread.join()
             
+            # Collect all captured packets
+            all_captured = []
+            queue_size = packet_queue.qsize()
+            logger.info(f"📥 Collecting packets from queue (queue size: {queue_size})")
+            
+            packet_count_from_queue = 0
             while not packet_queue.empty():
-                received_packets.append(packet_queue.get())
+                packet = packet_queue.get()
+                all_captured.append(packet)
+                packet_count_from_queue += 1
+                
+                # Log progress every 10 packets
+                if packet_count_from_queue % 10 == 0:
+                    logger.info(f"📥 Collected {packet_count_from_queue} packets from queue...")
+            
+            logger.info(f"📥 Finished collecting: {packet_count_from_queue} packets from queue")
+            
+            # For real interfaces, use all captured packets that match our criteria
+            # Don't try to do 1:1 matching since packets can be duplicated, reordered, etc.
+            
+            if len(all_captured) > 0:
+                logger.info(f"Raw captured packets: {len(all_captured)}")
+                
+                # Filter captured packets to only include those that match our test
+                for i, captured_packet in enumerate(all_captured):
+                    # Check if this packet matches any of our sent packet criteria
+                    matches_our_test = False
+                    
+                    for sent_packet in sent_packets:
+                        if packets_match(sent_packet, captured_packet):
+                            matches_our_test = True
+                            break
+                    
+                    if matches_our_test:
+                        received_packets.append(captured_packet)
+                        logger.debug(f"Added captured packet {i+1} to received list")
+                    else:
+                        logger.debug(f"Skipped captured packet {i+1} - doesn't match our test")
+                
+                logger.info(f"Filtered to {len(received_packets)} packets that match our test criteria")
+            else:
+                # If no filter was used, use all captured packets
+                logger.warning("No capture filter was applied - this might include unrelated traffic")
+                received_packets = all_captured
+            
+            logger.info(f"Final result: {len(all_captured)} total captured, {len(received_packets)} matching our test")
         
         logger.info(f"Received {len(received_packets)} packets for comparison")
         
-        # Perform packet comparison
+        # Initialize comparison results list
+        comparison_results = []
+        
+        # Analyze packet protocols for statistics
+        def analyze_packet_protocols(packets, packet_type=""):
+            stats = {
+                'ipv4': 0,
+                'ipv6': 0,
+                'tcp': 0,
+                'udp': 0,
+                'icmp': 0,
+                'other': 0
+            }
+            
+            for packet in packets:
+                # Count IP versions
+                if packet.haslayer(IP):
+                    stats['ipv4'] += 1
+                elif packet.haslayer(IPv6):
+                    stats['ipv6'] += 1
+                else:
+                    stats['other'] += 1
+                
+                # Count transport protocols
+                if packet.haslayer(TCP):
+                    stats['tcp'] += 1
+                elif packet.haslayer(UDP):
+                    stats['udp'] += 1
+                elif packet.haslayer(ICMP):
+                    stats['icmp'] += 1
+                elif packet.haslayer(ICMPv6EchoRequest):
+                    stats['icmp'] += 1
+            
+            return stats
+        
+        # Get protocol statistics for sent and received packets
+        sent_protocol_stats = analyze_packet_protocols(sent_packets, "sent")
+        received_protocol_stats = analyze_packet_protocols(received_packets, "received")
+        
+        # Calculate packet statistics
+        packets_sent_count = len(sent_packets)
+        packets_received_count = len(received_packets)
+        packets_matched = 0
+        packets_mismatched = 0
+        packets_not_found = 0
+        
+        # Perform packet comparison and count results
+        first_mismatch_details = None
+        
         for i, sent_packet in enumerate(sent_packets):
             if i < len(received_packets):
                 received_packet = received_packets[i]
                 is_identical, comparison_msg = compare_packets(sent_packet, received_packet)
                 
                 if is_identical:
+                    packets_matched += 1
                     comparison_results.append(f"Packet {i+1}: Received packet is identical with sent packet")
                 else:
+                    packets_mismatched += 1
                     comparison_results.append(f"Packet {i+1}: Packets are different - {comparison_msg}")
+                    
+                    # Capture details of the first mismatch for detailed analysis
+                    if first_mismatch_details is None:
+                        first_mismatch_details = analyze_packet_mismatch(sent_packet, received_packet, i+1)
             else:
+                packets_not_found += 1
                 comparison_results.append(f"Packet {i+1}: No corresponding received packet found")
         
         # Handle case where more packets were received than sent
+        extra_received = 0
         if len(received_packets) > len(sent_packets):
+            extra_received = len(received_packets) - len(sent_packets)
             for i in range(len(sent_packets), len(received_packets)):
                 comparison_results.append(f"Extra received packet {i+1}: No corresponding sent packet")
+        
+        # Clean up old PCAP files before generating new ones
+        cleanup_old_pcap_files()
         
         # Generate PCAP files
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -525,15 +1001,27 @@ def generate_packets():
             received_filename = f"received_packets_{timestamp}.pcap"
             received_pcap_file = save_packets_to_pcap(received_packets, received_filename)
         
-        # Build success message
+        # Build success message with detailed statistics
         mode_text = " (Test Mode)" if is_test_mode else ""
-        message = f'Successfully sent {len(packets_sent)} packets, received {len(received_packets)} packets{mode_text}'
+        message = f'Successfully sent {packets_sent_count} packets, received {packets_received_count} packets{mode_text}'
+        
+        # Create packet statistics summary
+        packet_stats = {
+            'sent': packets_sent_count,
+            'received': packets_received_count,
+            'matched': packets_matched,
+            'mismatched': packets_mismatched,
+            'not_found': packets_not_found,
+            'extra_received': extra_received if 'extra_received' in locals() else 0,
+            'sent_protocols': sent_protocol_stats,
+            'received_protocols': received_protocol_stats,
+            'first_mismatch': first_mismatch_details
+        }
         
         response_data = {
             'success': True, 
             'message': message,
-            'packets': packets_sent[:10],
-            'comparison_results': comparison_results[:10],
+            'packet_stats': packet_stats,
             'test_mode': is_test_mode
         }
         
@@ -557,11 +1045,35 @@ def download_pcap(filename):
         filepath = os.path.join(pcap_dir, filename)
         
         if os.path.exists(filepath):
-            return send_file(filepath, as_attachment=True, download_name=filename)
+            return send_file(
+                filepath, 
+                as_attachment=True, 
+                download_name=filename,
+                mimetype='application/vnd.tcpdump.pcap'  # PCAP MIME type for Wireshark
+            )
         else:
             return jsonify({'error': 'PCAP file not found'}), 404
     except Exception as e:
         return jsonify({'error': f'Failed to download PCAP file: {str(e)}'}), 500
+
+@app.route('/open_pcap/<filename>')
+def open_pcap(filename):
+    """Open PCAP file directly (for Wireshark association)"""
+    try:
+        pcap_dir = "pcap_files"
+        filepath = os.path.join(pcap_dir, filename)
+        
+        if os.path.exists(filepath):
+            return send_file(
+                filepath, 
+                as_attachment=False,  # Open directly, don't download
+                download_name=filename,
+                mimetype='application/vnd.tcpdump.pcap'
+            )
+        else:
+            return jsonify({'error': 'PCAP file not found'}), 404
+    except Exception as e:
+        return jsonify({'error': f'Failed to open PCAP file: {str(e)}'}), 500
 
 @app.route('/open_wireshark/<filename>')
 def open_wireshark(filename):
@@ -646,4 +1158,8 @@ if __name__ == '__main__':
         print("Warning: This application requires root privileges to send packets.")
         print("Run with: sudo python3 app.py")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Clean up old PCAP files on startup
+    print("🧹 Cleaning up old PCAP files on startup...")
+    cleanup_old_pcap_files()
+    
+    app.run(debug=True, host='0.0.0.0', port=9200)

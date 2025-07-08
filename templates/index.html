@@ -89,9 +89,6 @@
     <div class="container">
         <h1>Network Packet Generator</h1>
         
-        <div class="warning">
-            <strong>Warning:</strong> This tool requires root privileges and should only be used for legitimate network testing and security analysis purposes.
-        </div>
 
         <form id="packetForm">
             <div class="row">
@@ -143,7 +140,7 @@
                 <div class="col">
                     <div class="form-group">
                         <label for="packet_length">Packet Length (bytes):</label>
-                        <input type="number" id="packet_length" name="packet_length" value="64" min="64" max="1500" required>
+                        <input type="number" id="packet_length" name="packet_length" value="64" min="64" max="10000" required>
                     </div>
                 </div>
                 <div class="col"></div>
@@ -153,13 +150,13 @@
                 <div class="col">
                     <div class="form-group">
                         <label for="size_min" id="size_min_label">Min Size / Start Size:</label>
-                        <input type="number" id="size_min" name="size_min" value="64" min="64" max="1500">
+                        <input type="number" id="size_min" name="size_min" value="64" min="64" max="10000">
                     </div>
                 </div>
                 <div class="col">
                     <div class="form-group">
                         <label for="size_max">Max Size:</label>
-                        <input type="number" id="size_max" name="size_max" value="1500" min="64" max="1500">
+                        <input type="number" id="size_max" name="size_max" value="10000" min="64" max="10000">
                     </div>
                 </div>
             </div>
@@ -273,6 +270,7 @@
                             <option value="0">0 (No VLAN)</option>
                             <option value="1">1 VLAN Tag</option>
                             <option value="2">2 VLAN Tags</option>
+                            <option value="3">3 VLAN Tags</option>
                         </select>
                     </div>
                 </div>
@@ -287,6 +285,7 @@
                             <option value="4">4 MPLS Labels</option>
                             <option value="5">5 MPLS Labels</option>
                             <option value="6">6 MPLS Labels</option>
+                            <option value="7">7 MPLS Labels</option>
                         </select>
                     </div>
                 </div>
@@ -318,6 +317,20 @@
                         <div class="form-group">
                             <label for="vlan2_priority">VLAN 2 Priority:</label>
                             <input type="number" id="vlan2_priority" name="vlan2_priority" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="row" id="vlan3_row" style="display: none;">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="vlan3_id">VLAN 3 ID:</label>
+                            <input type="number" id="vlan3_id" name="vlan3_id" min="1" max="4094" value="300">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="vlan3_priority">VLAN 3 Priority:</label>
+                            <input type="number" id="vlan3_priority" name="vlan3_priority" min="0" max="7" value="0">
                         </div>
                     </div>
                 </div>
@@ -408,6 +421,20 @@
                         </div>
                     </div>
                 </div>
+                <div class="row" id="mpls7_row" style="display: none;">
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls7_label">MPLS 7 Label:</label>
+                            <input type="number" id="mpls7_label" name="mpls7_label" min="16" max="1048575" value="7000">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label for="mpls7_tc">MPLS 7 TC:</label>
+                            <input type="number" id="mpls7_tc" name="mpls7_tc" min="0" max="7" value="0">
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="row">
@@ -457,6 +484,13 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadInterfaces();
             
+            // Initialize protocol dependencies on page load
+            const ipVersionSelect = document.getElementById('ip_version');
+            const protocolSelect = document.getElementById('protocol');
+            
+            // Trigger change event to initialize proper state
+            ipVersionSelect.dispatchEvent(new Event('change'));
+            
             document.getElementById('protocol').addEventListener('change', function() {
                 const portFields = document.getElementById('portFields');
                 if (this.value === 'ICMP' || this.value === 'None') {
@@ -469,6 +503,7 @@
             document.getElementById('ip_version').addEventListener('change', function() {
                 const ipFields = document.querySelectorAll('input[id$="_ip"]');
                 const portFields = document.getElementById('portFields');
+                const protocolSelect = document.getElementById('protocol');
                 
                 if (this.value === 'None') {
                     // Hide IP address fields when no L3 header
@@ -477,13 +512,41 @@
                     });
                     // Also hide port fields since they depend on IP layer
                     portFields.style.display = 'none';
+                    
+                    // Disable L4 protocols and force "None" selection
+                    const tcpOption = protocolSelect.querySelector('option[value="TCP"]');
+                    const udpOption = protocolSelect.querySelector('option[value="UDP"]');
+                    const icmpOption = protocolSelect.querySelector('option[value="ICMP"]');
+                    const randomOption = protocolSelect.querySelector('option[value="Random"]');
+                    
+                    tcpOption.disabled = true;
+                    udpOption.disabled = true;
+                    icmpOption.disabled = true;
+                    randomOption.disabled = true;
+                    
+                    // Force protocol to None if L4 protocol was selected
+                    if (protocolSelect.value !== 'None') {
+                        protocolSelect.value = 'None';
+                    }
                 } else {
                     // Show IP address fields
                     ipFields.forEach(field => {
                         field.closest('.row').style.display = 'flex';
                     });
+                    
+                    // Enable L4 protocols
+                    const tcpOption = protocolSelect.querySelector('option[value="TCP"]');
+                    const udpOption = protocolSelect.querySelector('option[value="UDP"]');
+                    const icmpOption = protocolSelect.querySelector('option[value="ICMP"]');
+                    const randomOption = protocolSelect.querySelector('option[value="Random"]');
+                    
+                    tcpOption.disabled = false;
+                    udpOption.disabled = false;
+                    icmpOption.disabled = false;
+                    randomOption.disabled = false;
+                    
                     // Show port fields based on protocol selection
-                    const protocol = document.getElementById('protocol').value;
+                    const protocol = protocolSelect.value;
                     if (protocol === 'ICMP' || protocol === 'None') {
                         portFields.style.display = 'none';
                     } else {
@@ -495,15 +558,24 @@
             document.getElementById('vlan_count').addEventListener('change', function() {
                 const vlanFields = document.getElementById('vlan_fields');
                 const vlan2Row = document.getElementById('vlan2_row');
+                const vlan3Row = document.getElementById('vlan3_row');
                 
                 if (this.value === '0') {
                     vlanFields.style.display = 'none';
                 } else {
                     vlanFields.style.display = 'block';
-                    if (this.value === '2') {
+                    
+                    // Show/hide VLAN rows based on count
+                    if (this.value >= '2') {
                         vlan2Row.style.display = 'flex';
                     } else {
                         vlan2Row.style.display = 'none';
+                    }
+                    
+                    if (this.value >= '3') {
+                        vlan3Row.style.display = 'flex';
+                    } else {
+                        vlan3Row.style.display = 'none';
                     }
                 }
             });
@@ -518,7 +590,7 @@
                     mplsFields.style.display = 'block';
                     
                     // Hide all MPLS rows first
-                    for (let i = 2; i <= 6; i++) {
+                    for (let i = 2; i <= 7; i++) {
                         const row = document.getElementById(`mpls${i}_row`);
                         if (row) row.style.display = 'none';
                     }
@@ -598,32 +670,8 @@
         }
 
         function openInWireshark(filename) {
-            fetch(`/open_wireshark/${filename}`, {
-                method: 'GET'
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Show a brief success message
-                    const resultDiv = document.getElementById('result');
-                    const successMessage = document.createElement('div');
-                    successMessage.style.cssText = 'background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 10px; border-radius: 4px; margin-top: 10px;';
-                    successMessage.innerHTML = `<strong>Success:</strong> ${data.message}`;
-                    resultDiv.appendChild(successMessage);
-                    
-                    // Remove the success message after 3 seconds
-                    setTimeout(() => {
-                        if (successMessage.parentNode) {
-                            successMessage.parentNode.removeChild(successMessage);
-                        }
-                    }, 3000);
-                } else {
-                    alert(`Error: ${data.error}`);
-                }
-            })
-            .catch(error => {
-                alert(`Error opening Wireshark: ${error.message}`);
-            });
+            // Open PCAP file in new tab/window - browser will use associated application (Wireshark)
+            window.open(`/open_pcap/${filename}`, '_blank');
         }
 
         function generatePackets() {
@@ -644,21 +692,109 @@
                     resultDiv.className = 'result success';
                     let resultHTML = `<strong>Success!</strong> ${data.message}`;
                     
-                    if (data.packets) {
-                        resultHTML += '<br><br><strong>Sent Packets:</strong><br>' + data.packets.join('<br>');
-                    }
-                    
-                    if (data.comparison_results) {
-                        resultHTML += '<br><br><strong>Packet Comparison Results:</strong><br>';
-                        data.comparison_results.forEach(result => {
-                            if (result.includes('identical')) {
-                                resultHTML += `<span style="color: green;">✓ ${result}</span><br>`;
-                            } else if (result.includes('different') || result.includes('No corresponding')) {
-                                resultHTML += `<span style="color: red;">✗ ${result}</span><br>`;
-                            } else {
-                                resultHTML += `<span style="color: orange;">⚠ ${result}</span><br>`;
+                    if (data.packet_stats) {
+                        resultHTML += '<br><br><strong>Packet Statistics:</strong><br>';
+                        resultHTML += '<table style="border-collapse: collapse; width: 100%; margin-top: 10px;">';
+                        resultHTML += '<tr style="background-color: #f8f9fa;">';
+                        resultHTML += '<th style="border: 1px solid #dee2e6; padding: 8px; text-align: left;">Metric</th>';
+                        resultHTML += '<th style="border: 1px solid #dee2e6; padding: 8px; text-align: center;">Count</th>';
+                        resultHTML += '</tr>';
+                        
+                        resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 8px;">Packets Sent</td><td style="border: 1px solid #dee2e6; padding: 8px; text-align: center; font-weight: bold;">${data.packet_stats.sent}</td></tr>`;
+                        resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 8px;">Packets Received</td><td style="border: 1px solid #dee2e6; padding: 8px; text-align: center; font-weight: bold;">${data.packet_stats.received}</td></tr>`;
+                        resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 8px;">Packets Matched</td><td style="border: 1px solid #dee2e6; padding: 8px; text-align: center; font-weight: bold; color: green;">${data.packet_stats.matched}</td></tr>`;
+                        
+                        if (data.packet_stats.mismatched > 0) {
+                            resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 8px;">Packets Mismatched</td><td style="border: 1px solid #dee2e6; padding: 8px; text-align: center; font-weight: bold; color: orange;">${data.packet_stats.mismatched}</td></tr>`;
+                        }
+                        
+                        if (data.packet_stats.not_found > 0) {
+                            resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 8px;">Packets Not Found</td><td style="border: 1px solid #dee2e6; padding: 8px; text-align: center; font-weight: bold; color: red;">${data.packet_stats.not_found}</td></tr>`;
+                        }
+                        
+                        if (data.packet_stats.extra_received > 0) {
+                            resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 8px;">Extra Received</td><td style="border: 1px solid #dee2e6; padding: 8px; text-align: center; font-weight: bold; color: blue;">${data.packet_stats.extra_received}</td></tr>`;
+                        }
+                        
+                        resultHTML += '</table>';
+                        
+                        // Add success rate
+                        const successRate = data.packet_stats.sent > 0 ? ((data.packet_stats.matched / data.packet_stats.sent) * 100).toFixed(1) : 0;
+                        resultHTML += `<br><strong>Success Rate:</strong> <span style="font-weight: bold; color: ${successRate >= 90 ? 'green' : successRate >= 70 ? 'orange' : 'red'};">${successRate}%</span>`;
+                        
+                        // Add protocol statistics
+                        if (data.packet_stats.sent_protocols && data.packet_stats.received_protocols) {
+                            resultHTML += '<br><br><strong>Protocol Statistics:</strong><br>';
+                            resultHTML += '<div style="display: flex; gap: 20px; margin-top: 10px;">';
+                            
+                            // Sent packets protocol stats
+                            resultHTML += '<div style="flex: 1;">';
+                            resultHTML += '<h4 style="margin: 0 0 10px 0; color: #28a745;">Sent Packets</h4>';
+                            resultHTML += '<table style="border-collapse: collapse; width: 100%; font-size: 14px;">';
+                            resultHTML += '<tr style="background-color: #f8f9fa;"><th style="border: 1px solid #dee2e6; padding: 6px; text-align: left;">Protocol</th><th style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">Count</th></tr>';
+                            
+                            const sentStats = data.packet_stats.sent_protocols;
+                            if (sentStats.ipv4 > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">IPv4</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${sentStats.ipv4}</td></tr>`;
+                            if (sentStats.ipv6 > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">IPv6</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${sentStats.ipv6}</td></tr>`;
+                            if (sentStats.tcp > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">TCP</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${sentStats.tcp}</td></tr>`;
+                            if (sentStats.udp > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">UDP</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${sentStats.udp}</td></tr>`;
+                            if (sentStats.icmp > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">ICMP</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${sentStats.icmp}</td></tr>`;
+                            if (sentStats.other > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">Other</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${sentStats.other}</td></tr>`;
+                            
+                            resultHTML += '</table></div>';
+                            
+                            // Received packets protocol stats
+                            resultHTML += '<div style="flex: 1;">';
+                            resultHTML += '<h4 style="margin: 0 0 10px 0; color: #17a2b8;">Received Packets</h4>';
+                            resultHTML += '<table style="border-collapse: collapse; width: 100%; font-size: 14px;">';
+                            resultHTML += '<tr style="background-color: #f8f9fa;"><th style="border: 1px solid #dee2e6; padding: 6px; text-align: left;">Protocol</th><th style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">Count</th></tr>';
+                            
+                            const recvStats = data.packet_stats.received_protocols;
+                            if (recvStats.ipv4 > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">IPv4</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${recvStats.ipv4}</td></tr>`;
+                            if (recvStats.ipv6 > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">IPv6</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${recvStats.ipv6}</td></tr>`;
+                            if (recvStats.tcp > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">TCP</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${recvStats.tcp}</td></tr>`;
+                            if (recvStats.udp > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">UDP</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${recvStats.udp}</td></tr>`;
+                            if (recvStats.icmp > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">ICMP</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${recvStats.icmp}</td></tr>`;
+                            if (recvStats.other > 0) resultHTML += `<tr><td style="border: 1px solid #dee2e6; padding: 6px;">Other</td><td style="border: 1px solid #dee2e6; padding: 6px; text-align: center;">${recvStats.other}</td></tr>`;
+                            
+                            resultHTML += '</table></div>';
+                            resultHTML += '</div>';
+                        }
+                        
+                        // Add detailed mismatch analysis if there are any mismatches
+                        if (data.packet_stats.first_mismatch && data.packet_stats.mismatched > 0) {
+                            const mismatch = data.packet_stats.first_mismatch;
+                            resultHTML += '<br><br><strong>🔍 First Mismatch Analysis:</strong><br>';
+                            resultHTML += '<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 13px;">';
+                            
+                            resultHTML += `<strong>Packet ${mismatch.packet_number} Mismatch Details:</strong><br><br>`;
+                            
+                            // Packet summaries
+                            resultHTML += `<strong>Sent:</strong> ${mismatch.sent_summary}<br>`;
+                            resultHTML += `<strong>Received:</strong> ${mismatch.received_summary}<br><br>`;
+                            
+                            // Length comparison
+                            resultHTML += `<strong>Lengths:</strong> Sent ${mismatch.sent_length} bytes, Received ${mismatch.received_length} bytes<br><br>`;
+                            
+                            // First difference details
+                            if (mismatch.first_diff_byte) {
+                                resultHTML += `<strong>First Difference:</strong> Byte offset ${mismatch.first_diff_offset}<br>`;
+                                resultHTML += `<span style="color: #d63384;">Sent:</span> ${mismatch.first_diff_byte.sent} `;
+                                resultHTML += `<span style="color: #0d6efd;">Received:</span> ${mismatch.first_diff_byte.received}<br><br>`;
+                                
+                                // Hex comparison with context
+                                if (mismatch.hex_comparison) {
+                                    resultHTML += `<strong>Hex Context (offset ${mismatch.hex_comparison.offset_start}+):</strong><br>`;
+                                    resultHTML += `<span style="color: #d63384;">Sent:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> ${mismatch.hex_comparison.sent}<br>`;
+                                    resultHTML += `<span style="color: #0d6efd;">Received:</span> ${mismatch.hex_comparison.received}<br>`;
+                                    resultHTML += '<small style="color: #6c757d;">[ ] marks the first differing byte</small>';
+                                }
+                            } else if (mismatch.length_mismatch) {
+                                resultHTML += `<strong>Difference:</strong> Length mismatch at byte ${mismatch.first_diff_offset}`;
                             }
-                        });
+                            
+                            resultHTML += '</div>';
+                        }
                     }
                     
                     // Add PCAP download and Wireshark buttons
