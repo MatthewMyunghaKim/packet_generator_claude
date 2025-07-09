@@ -657,9 +657,15 @@ def generate_packets():
             
             # Fast startup with minimal delays
             max_duration = 60
-            idle_timeout = 2   # Quick timeout
+            # Scale idle timeout based on packet count for high-volume tests
+            if packet_count <= 100:
+                idle_timeout = 2   # Quick timeout for small batches
+            elif packet_count <= 500:
+                idle_timeout = 5   # Medium timeout for medium batches
+            else:
+                idle_timeout = 10  # Longer timeout for large batches (1000+)
             startup_delay = 2   # Much shorter startup
-            logger.info(f"🚀 Fast mode: 2s startup, 2s timeout for {packet_count} packets")
+            logger.info(f"🚀 Fast mode: 2s startup, {idle_timeout}s timeout for {packet_count} packets")
             
             capture_thread = threading.Thread(
                 target=packet_capture_thread,
@@ -834,8 +840,12 @@ def generate_packets():
                         # Multiple packets - adaptive delay based on packet count
                         if packet_count <= 10:
                             time.sleep(0.2)  # 200ms for small batches
+                        elif packet_count <= 100:
+                            time.sleep(0.1)  # 100ms for medium batches
+                        elif packet_count <= 500:
+                            time.sleep(0.05)  # 50ms for larger batches
                         else:
-                            time.sleep(0.1)  # 100ms for larger batches
+                            time.sleep(0.01)  # 10ms for very large batches (1000+)
                 
             except Exception as e:
                 logger.error(f"Failed to send packet {i+1}: {str(e)}")
@@ -858,6 +868,11 @@ def generate_packets():
             # Use mock packet capture for test interfaces
             received_packets = mock_packet_capture(sent_packets, recv_interface, capture_filter)
         else:
+            # Give capture thread time to process final packets before joining
+            if packet_count >= 500:
+                logger.info(f"⏳ Waiting extra time for capture thread to process {packet_count} packets...")
+                time.sleep(2)  # Extra 2 seconds for high packet count tests
+            
             # Wait for capture thread to complete and get captured packets
             capture_thread.join()
             
@@ -1049,7 +1064,7 @@ def download_pcap(filename):
                 filepath, 
                 as_attachment=True, 
                 download_name=filename,
-                mimetype='application/vnd.tcpdump.pcap'  # PCAP MIME type for Wireshark
+                mimetype='application/octet-stream'  # Generic binary download
             )
         else:
             return jsonify({'error': 'PCAP file not found'}), 404
