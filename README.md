@@ -1,31 +1,43 @@
 # Network Packet Generator
 
-A comprehensive web-based network packet generator built with Flask and Scapy, featuring advanced packet crafting, real-time analysis, and professional testing capabilities.
+A comprehensive web-based network packet generator built with Flask and Scapy, featuring advanced packet crafting, real-time analysis, and professional testing capabilities. Supports high-throughput testing up to 1000+ packets with jumbo frame support.
 
 ## 🚀 Features
 
 ### Core Packet Generation
 - **Multi-Protocol Support**: TCP, UDP, ICMP, or None (Layer 2 only)
 - **Dual IP Stack**: IPv4, IPv6, or None (Ethernet only)
+- **Smart Protocol Logic**: Automatically enforces OSI model dependencies (L4 protocols require L3)
 - **Random Generation**: Random protocols and IP versions per packet
 - **Advanced Layering**: Ethernet + VLAN + MPLS + IP + Transport + Payload
 
 ### Advanced Generation Modes
 - **Packet Size**: Fixed, Random (min-max), or Incrementing (start + step)
+  - **Jumbo Frame Support**: Up to 10,000 bytes (enterprise-grade testing)
 - **IP Addresses**: Fixed, Random, or Incrementing for both source and destination
 - **MAC Addresses**: Fixed, Random, or Incrementing for both source and destination
+- **Payload Patterns**: Repeating hex patterns (e.g., "00aa" → "00aa00aa00aa...")
 - **Flexible Configuration**: Mix and match different modes for comprehensive testing
 
 ### Network Layer Support
-- **VLAN Tagging**: Up to 2 VLAN tags with configurable IDs and priorities
-- **MPLS Labels**: Up to 6 MPLS labels with traffic class settings
-- **Custom Payloads**: Hex format support (e.g., "00 FF AA BB") or plain text
+- **VLAN Tagging**: Up to 3 VLAN tags with configurable IDs and priorities
+- **MPLS Labels**: Up to 7 MPLS labels with traffic class settings
+- **Custom Payloads**: Hex format support (e.g., "00 FF AA BB") or plain text with pattern repetition
 
 ### Analysis & Comparison
 - **Real-time Comparison**: Byte-by-byte analysis of sent vs received packets
 - **PCAP Generation**: Automatic creation of timestamped PCAP files
-- **Wireshark Integration**: One-click opening in Wireshark for detailed analysis
+- **Dual Download Options**: 
+  - **Download PCAP**: Pure file download without opening applications
+  - **Open in Wireshark**: Direct Wireshark integration for analysis
 - **Visual Results**: Color-coded comparison results with detailed difference reporting
+- **Mismatch Analysis**: Detailed first-packet mismatch reporting for debugging
+
+### High-Performance Testing
+- **Optimized Throughput**: Handles 1000+ packets efficiently with adaptive timing
+- **Race Condition Prevention**: Smart buffering prevents packet loss during high-volume tests
+- **Automatic File Cleanup**: Manages PCAP files to prevent disk space issues
+- **Protocol Statistics**: Real-time protocol distribution analysis
 
 ### Test Mode
 - **Virtual Interfaces**: Test without real network hardware or root privileges
@@ -56,12 +68,14 @@ A comprehensive web-based network packet generator built with Flask and Scapy, f
 ```bash
 python3 app.py
 ```
-Open your browser to `http://localhost:5000`
+Open your browser to `http://localhost:9200`
 
 ### Production Usage (Real Network Interfaces)
 ```bash
 sudo python3 app.py
 ```
+
+**Note**: The application now runs on port 9200 for better compatibility with enterprise environments.
 
 ## 💻 Web Interface
 
@@ -70,14 +84,14 @@ sudo python3 app.py
 - **Receive Interface**: `test-receive-interface`
 - **Protocol**: None (No L4 Protocol)
 - **IP Version**: None (No L3 Header)
-- **Packet Size**: 64 bytes (fixed)
-- **Payload**: `00 00 00 00` (hex format)
+- **Packet Size**: 64 bytes (fixed, up to 10,000 bytes supported)
+- **Payload**: `00 00 00 00` (hex format with pattern repetition)
 
 ### Generation Modes
 
 #### Packet Size Options
-- **Fixed**: Single packet size (default: 64 bytes)
-- **Random**: Random size between min and max values
+- **Fixed**: Single packet size (default: 64 bytes, max: 10,000 bytes)
+- **Random**: Random size between min and max values (up to 10,000 bytes)
 - **Incrementing**: Start size with configurable increment step
 
 #### Address Generation
@@ -87,8 +101,8 @@ sudo python3 app.py
 
 #### Protocol Options
 - **None**: Ethernet + VLAN/MPLS + Payload only
-- **TCP/UDP/ICMP**: Standard transport protocols
-- **Random**: Randomly select protocol per packet
+- **TCP/UDP/ICMP**: Standard transport protocols (automatically disabled without IP layer)
+- **Random**: Randomly select protocol per packet (respects layer dependencies)
 
 ## 📊 Understanding Results
 
@@ -128,14 +142,14 @@ packet-generator/
 
 ## 🔧 Configuration Examples
 
-### Load Testing
+### High-Volume Load Testing
 ```
 Protocol: Random
 IP Version: Random
-Packet Size: Random (64-1500 bytes)
+Packet Size: Random (64-10000 bytes)
 IP Addresses: Random
 MAC Addresses: Fixed
-Packet Count: 1000
+Packet Count: 1000+
 ```
 
 ### Network Scanning
@@ -189,25 +203,33 @@ Packet Count: 100
 
 ## 🚀 Advanced Usage
 
-### Custom VLAN Configuration
+### Enhanced VLAN Configuration
 ```
-VLAN Count: 2
+VLAN Count: 3 (increased from 2)
 VLAN 1 ID: 100 (Priority: 0)
 VLAN 2 ID: 200 (Priority: 7)
+VLAN 3 ID: 300 (Priority: 4)
 ```
 
-### MPLS Label Stack
+### Extended MPLS Label Stack
 ```
-MPLS Count: 3
+MPLS Count: 7 (increased from 6)
 Label 1: 1000 (TC: 0)
 Label 2: 2000 (TC: 4)
 Label 3: 3000 (TC: 7)
+Label 4: 4000 (TC: 1)
+Label 5: 5000 (TC: 2)
+Label 6: 6000 (TC: 5)
+Label 7: 7000 (TC: 6)
 ```
 
-### Hex Payload Format
+### Hex Payload Format with Pattern Repetition
 ```
+Payload: "00 AA"
+Result for 100-byte payload: "00 AA 00 AA 00 AA..." (pattern repeats to fill space)
+
 Payload: "00 FF AA BB CC DD"
-Result: Six bytes with values 0x00, 0xFF, 0xAA, 0xBB, 0xCC, 0xDD
+Result: Six bytes with values 0x00, 0xFF, 0xAA, 0xBB, 0xCC, 0xDD (then repeats)
 ```
 
 ## 🔐 Security Considerations
@@ -260,6 +282,24 @@ This project is provided as-is for educational and testing purposes. Use respons
 - **Wireshark**: Network protocol analyzer
 - **Claude AI**: Development assistance and guidance
 
+## 🆕 Recent Updates
+
+### Version 2.0 Features
+- **Jumbo Frame Support**: Packet sizes up to 10,000 bytes
+- **Enhanced VLAN/MPLS**: 3 VLAN tags, 7 MPLS labels
+- **Smart Protocol Logic**: OSI model enforcement (L4 requires L3)
+- **Pattern Payloads**: Repeating hex patterns for consistent testing
+- **High-Volume Optimization**: Handles 1000+ packets efficiently
+- **Dual PCAP Options**: Download vs Open in Wireshark
+- **Race Condition Fixes**: Improved timing for high-throughput tests
+- **Port 9200**: Better enterprise compatibility
+
+### Performance Improvements
+- **Adaptive Timing**: Scales timeouts based on packet count
+- **Buffer Optimization**: Enhanced capture reliability
+- **File Management**: Automatic PCAP cleanup
+- **Mismatch Analysis**: Detailed debugging information
+
 ## 📞 Support
 
 For detailed development history and troubleshooting, see:
@@ -269,8 +309,8 @@ For detailed development history and troubleshooting, see:
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: 2024-07-06  
+**Version**: 2.0.0  
+**Last Updated**: 2025-01-11  
 **Compatibility**: Python 3.7+, Cross-platform  
 **Status**: Production Ready  
 
